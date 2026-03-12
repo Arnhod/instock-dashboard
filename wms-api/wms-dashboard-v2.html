@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WMS Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --accent:  #4f6ef7;   /* overskrives av customer.primaryColor */
+      --bg:      #0d0f18;
+      --card:    #151721;
+      --card2:   #1c1f2e;
+      --border:  #252840;
+      --text:    #e8eaf2;
+      --muted:   #6b7294;
+      --ok:      #22c55e;
+      --warn:    #f5c518;
+      --danger:  #ef4444;
+      --radius:  10px;
+      --gap:     14px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 14px;
+    }
+
+    /* ── Header ── */
+    #header {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 20px; height: 52px;
+      background: #0d0f18ee;
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+    }
+    #header .logo { font-size: 18px; font-weight: 800; letter-spacing: .06em; color: #fff; }
+    #header .logo span { color: var(--accent); }
+    #header .meta { display: flex; align-items: center; gap: 20px; font-size: 13px; color: var(--muted); }
+    #header .clock { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+    #header .refresh-badge {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--card2); border: 1px solid var(--border);
+      border-radius: 20px; padding: 4px 12px; font-size: 12px;
+    }
+    #header .refresh-badge .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--ok);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    .refresh-badge.loading .dot { background: var(--warn); animation: none; }
+    .refresh-badge.error   .dot { background: var(--danger); animation: none; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ── Layout ── */
+    #main { padding: var(--gap); display: grid; gap: var(--gap); }
+
+    /* ── Cards ── */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; overflow: hidden; }
+    .card-title { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+
+    /* ── Zone grid (kolonne-antall settes dynamisk via JS) ── */
+    #zone-grid { display: grid; gap: var(--gap); }
+
+    .zone-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px;
+      border-left: 3px solid var(--muted);
+    }
+    .zone-card .zone-name { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+    .zone-card .zone-picks { font-size: 36px; font-weight: 800; line-height: 1; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+    .zone-card .zone-sub { font-size: 12px; color: var(--muted); }
+    .zone-card .zone-bar { margin-top: 10px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .zone-card .zone-bar-fill { height: 100%; border-radius: 2px; transition: width .4s ease; }
+
+    /* ── Row2 ── */
+    #row2 { display: grid; grid-template-columns: 1.1fr 1fr; gap: var(--gap); }
+
+    .pipeline-counts { display: flex; gap: var(--gap); margin-bottom: 14px; }
+    .pipeline-stat { flex: 1; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; text-align: center; }
+    .pipeline-stat .p-num { font-size: 32px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .pipeline-stat .p-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+    .pipeline-stat.open    .p-num { color: var(--warn); }
+    .pipeline-stat.started .p-num { color: var(--accent); }
+    .pipeline-stat.done    .p-num { color: var(--ok); }
+
+    .picklist-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .picklist-item:last-child { border-bottom: none; }
+    .picklist-item .op-name { font-weight: 600; font-size: 13px; min-width: 100px; }
+    .picklist-item .pl-id { font-size: 11px; color: var(--muted); min-width: 60px; }
+    .picklist-item .progress-wrap { flex: 1; }
+    .picklist-item .progress-bg { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .picklist-item .progress-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width .4s ease; }
+    .picklist-item .progress-label { font-size: 11px; color: var(--muted); margin-top: 3px; }
+    .shortage-badge { background: #ef444420; border: 1px solid #ef4444; color: var(--danger); font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px; }
+
+    .op-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .op-row:last-child { border-bottom: none; }
+    .op-row .rank { color: var(--muted); font-size: 12px; min-width: 20px; }
+    .op-row .name { font-weight: 600; font-size: 13px; flex: 1; }
+    .op-bar-row { display: flex; gap: 4px; height: 12px; border-radius: 6px; overflow: hidden; flex: 2; }
+    .op-bar-seg { height: 100%; min-width: 2px; transition: width .4s ease; }
+    .seg-pick    { background: var(--accent); }
+    .seg-receive { background: var(--ok); }
+    .seg-return  { background: #f97316; }
+    .seg-move    { background: #e879a0; }
+    .op-row .total { font-size: 13px; font-weight: 700; min-width: 38px; text-align: right; }
+
+    /* ── Row3 ── */
+    #row3 { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--gap); }
+
+    .wms-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .wms-table th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 0 8px 8px 0; border-bottom: 1px solid var(--border); }
+    .wms-table td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .wms-table tr:last-child td { border-bottom: none; }
+    .wms-table tr:hover td { background: var(--card2); }
+
+    .zone-pill { display: inline-block; border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700; letter-spacing: .05em; }
+    .flag-badge { display: inline-block; background: #ef444418; border: 1px solid #ef444440; color: var(--danger); border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; }
+    .status-pill { display: inline-block; border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: 700; background: #ef444420; color: var(--danger); }
+
+    /* ── Row4 ── */
+    #row4 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+
+    .activity-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .activity-item:last-child { border-bottom: none; }
+    .act-time { font-size: 11px; color: var(--muted); min-width: 44px; padding-top: 1px; font-variant-numeric: tabular-nums; }
+    .act-type { font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px; min-width: 54px; text-align: center; }
+    .act-type.PLUKK  { background: #4f6ef720; color: var(--accent); }
+    .act-type.MOTTAK { background: #22c55e20; color: var(--ok);     }
+    .act-type.RETUR  { background: #ef444420; color: var(--danger); }
+    .act-type.ANNET  { background: #8b929e20; color: var(--muted);  }
+    .act-product { flex: 1; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .act-op { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+    /* ── States ── */
+    .loading-msg { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
+    .error-msg   { color: var(--danger); font-size: 12px; padding: 10px 0; text-align: center; }
+    .table-scroll { max-height: 280px; overflow-y: auto; }
+    .table-scroll::-webkit-scrollbar { width: 4px; }
+    .table-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    @media (max-width: 1400px) { #zone-grid { grid-template-columns: repeat(3,1fr) !important; } }
+    @media (max-width: 900px)  { #row2,#row3,#row4 { grid-template-columns: 1fr; } #zone-grid { grid-template-columns: repeat(2,1fr) !important; } }
+  </style>
+</head>
+<body>
+
+  <header id="header">
+    <div class="logo" id="header-logo">WMS</div>
+    <div class="meta">
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="refresh-badge" id="refresh-badge">
+        <div class="dot"></div>
+        <span id="refresh-label">Laster...</span>
+      </div>
+    </div>
+  </header>
+
+  <div id="main">
+    <div id="zone-grid"><div class="loading-msg">Laster konfigurasjon...</div></div>
+
+    <div id="row2">
+      <div class="card">
+        <div class="card-title">Ordreplukk i dag</div>
+        <div class="pipeline-counts">
+          <div class="pipeline-stat open">    <div class="p-num" id="p-open">—</div>    <div class="p-label">Åpne</div></div>
+          <div class="pipeline-stat started"> <div class="p-num" id="p-started">—</div> <div class="p-label">Pågår</div></div>
+          <div class="pipeline-stat done">    <div class="p-num" id="p-finished">—</div><div class="p-label">Ferdig</div></div>
+        </div>
+        <div class="card-title" style="margin-top:4px">Aktive plukklister</div>
+        <div class="table-scroll" id="picklist-list"><div class="loading-msg">Laster...</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Operatører i dag</div>
+        <div id="operators-list"><div class="loading-msg">Laster...</div></div>
+      </div>
+    </div>
+
+    <div id="row3">
+      <div class="card">
+        <div class="card-title">Hot zone — topp 20 varer (7 dager)</div>
+        <div class="table-scroll" id="hotzone-wrap"><div class="loading-msg">Laster...</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Flytt ut av hot zone</div>
+        <div class="table-scroll" id="move-suggest-wrap"><div class="loading-msg">Laster...</div></div>
+      </div>
+    </div>
+
+    <div id="row4">
+      <div class="card">
+        <div class="card-title">Varemottak i dag</div>
+        <div class="table-scroll" id="mottak-list"><div class="loading-msg">Laster...</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Aktivitet siste 24 timer</div>
+        <div class="table-scroll" id="history-list"><div class="loading-msg">Laster...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API        = ''; // samme origin — serveres av Express
+    const REFRESH_MS = 15 * 60 * 1000;
+
+    let cfg           = null;   // fylles etter /api/config
+    let zoneMap       = {};     // { ZONE_ID: { name, color, hot } }
+    let nextRefreshAt = Date.now() + REFRESH_MS;
+
+    // ── Klokke ──
+    setInterval(() => {
+      document.getElementById('clock').textContent =
+        new Date().toLocaleTimeString('no-NO', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    }, 1000);
+
+    // ── Nedteller ──
+    setInterval(() => {
+      const badge = document.getElementById('refresh-badge');
+      if (badge.classList.contains('loading')) return;
+      const s = Math.max(0, Math.round((nextRefreshAt - Date.now()) / 1000));
+      const m = String(Math.floor(s / 60)).padStart(2,'0');
+      document.getElementById('refresh-label').textContent =
+        `Neste: ${m}:${String(s % 60).padStart(2,'0')}`;
+    }, 1000);
+
+    function setBadge(state, text) {
+      const b = document.getElementById('refresh-badge');
+      b.className = 'refresh-badge' + (state ? ` ${state}` : '');
+      document.getElementById('refresh-label').textContent = text;
+    }
+
+    // ── Helpers ──
+    const apiFetch = async (path) => {
+      const r = await fetch(API + path);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    };
+    const hms      = (iso) => iso ? new Date(iso).toLocaleTimeString('no-NO', { hour:'2-digit', minute:'2-digit' }) : '—';
+    const cut      = (s, n) => s && s.length > n ? s.slice(0, n) + '…' : (s || '—');
+    const setErr   = (id, msg) => { const e = document.getElementById(id); if (e) e.innerHTML = `<div class="error-msg">Feil: ${msg}</div>`; };
+
+    function zonePill(zoneId) {
+      const z = zoneMap[zoneId];
+      if (!z) return `<span class="zone-pill" style="background:#8b929e20;color:#8b929e">${zoneId || '—'}</span>`;
+      const bg = z.color + '25';
+      return `<span class="zone-pill" style="background:${bg};color:${z.color}">${z.name}</span>`;
+    }
+
+    // ── Applisérer config: branding + CSS-variabler + sonekort ──
+    function applyConfig(config) {
+      cfg    = config;
+      zoneMap = {};
+      cfg.zones.forEach(z => { zoneMap[z.id] = z; });
+
+      // Tittel + logo
+      const shortName = cfg.customer.shortName || cfg.customer.name;
+      document.title = `${shortName} WMS Dashboard`;
+      document.getElementById('header-logo').innerHTML =
+        `${shortName} <span>WMS</span>`;
+
+      // Accent-farge
+      document.documentElement.style.setProperty('--accent', cfg.customer.primaryColor);
+
+      // Bygg sonekort dynamisk
+      const grid = document.getElementById('zone-grid');
+      const cols = Math.min(cfg.zones.length, 6);
+      grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+      grid.innerHTML = cfg.zones.map(z => `
+        <div class="zone-card" id="zc-${z.id}" style="border-left-color:${z.color}">
+          <div class="zone-name">${z.name}</div>
+          <div class="zone-picks" id="z-${z.id}-picks" style="color:${z.color}">—</div>
+          <div class="zone-sub"  id="z-${z.id}-sub">plukk siste 7 dager</div>
+          <div class="zone-bar">
+            <div class="zone-bar-fill" id="z-${z.id}-bar"
+                 style="width:0%;background:${z.color}"></div>
+          </div>
+        </div>`).join('');
+    }
+
+    // ── Render: Soner ──
+    function renderZones(data) {
+      const zones   = data.zones || [];
+      const maxPick = Math.max(1, ...zones.map(z => z.pick_count));
+      zones.forEach(z => {
+        const id = z.ZONE_ID;
+        const picks = document.getElementById(`z-${id}-picks`);
+        const sub   = document.getElementById(`z-${id}-sub`);
+        const bar   = document.getElementById(`z-${id}-bar`);
+        if (!picks) return;
+        picks.textContent = z.pick_count.toLocaleString('no-NO');
+        sub.textContent   = `${z.products_in_zone} produkter · ${z.total_stock.toLocaleString('no-NO')} stk`;
+        bar.style.width   = Math.round((z.pick_count / maxPick) * 100) + '%';
+      });
+    }
+
+    // ── Render: Ordrer ──
+    function renderOrders(data) {
+      const pipeline = data.pipeline || [];
+      const orders   = data.orders   || [];
+      const cnt = (s) => (pipeline.find(p => p.STATUS === s) || {}).count || 0;
+      document.getElementById('p-open').textContent     = cnt('OPEN');
+      document.getElementById('p-started').textContent  = cnt('STARTED');
+      document.getElementById('p-finished').textContent = cnt('FINISHED');
+
+      const active = orders.filter(o => ['OPEN','STARTED'].includes(o.STATUS));
+      const el = document.getElementById('picklist-list');
+      if (!active.length) {
+        el.innerHTML = '<div class="loading-msg" style="color:var(--muted)">Ingen aktive plukklister</div>';
+        return;
+      }
+      el.innerHTML = active.map(o => {
+        const pct = o.total_lines > 0 ? Math.round((o.finished_lines / o.total_lines) * 100) : 0;
+        const shortage = o.shortage_lines > 0 ? `<span class="shortage-badge">MANKO ${o.shortage_lines}</span>` : '';
+        return `<div class="picklist-item">
+          <div class="op-name">${o.operator_name || 'Ukjent'}</div>
+          <div class="pl-id">#${o.picklist_id}</div>
+          <div class="progress-wrap">
+            <div class="progress-bg"><div class="progress-fill" style="width:${pct}%"></div></div>
+            <div class="progress-label">${o.finished_lines}/${o.total_lines} linjer · ${pct}%</div>
+          </div>
+          ${shortage}
+        </div>`;
+      }).join('');
+    }
+
+    // ── Render: Operatører ──
+    function renderOperators(data) {
+      const ops = data.operators || [];
+      const el  = document.getElementById('operators-list');
+      if (!ops.length) {
+        el.innerHTML = '<div class="loading-msg" style="color:var(--muted)">Ingen aktivitet i dag</div>';
+        return;
+      }
+      el.innerHTML = ops.slice(0, 10).map((op, i) => {
+        const pp = op.pick_pct || 0, rp = op.receive_pct || 0, ret = op.return_pct || 0;
+        const mp = Math.max(0, 100 - pp - rp - ret);
+        return `<div class="op-row">
+          <div class="rank">${i + 1}</div>
+          <div class="name">${op.operator_name || op.USERNAME}</div>
+          <div class="op-bar-row">
+            <div class="op-bar-seg seg-pick"    style="width:${pp}%"  title="Plukk ${pp}%"></div>
+            <div class="op-bar-seg seg-receive" style="width:${rp}%"  title="Mottak ${rp}%"></div>
+            <div class="op-bar-seg seg-return"  style="width:${ret}%" title="Retur ${ret}%"></div>
+            <div class="op-bar-seg seg-move"    style="width:${mp}%"  title="Flytt ${mp}%"></div>
+          </div>
+          <div class="total">${op.total_transactions}</div>
+        </div>`;
+      }).join('');
+    }
+
+    // ── Render: Hot zone ──
+    function renderHotzone(data) {
+      const items = data.items || [];
+      const el    = document.getElementById('hotzone-wrap');
+      if (!items.length) {
+        el.innerHTML = '<div class="loading-msg" style="color:var(--muted)">Ingen data</div>';
+        return;
+      }
+      el.innerHTML = `
+        <table class="wms-table">
+          <thead><tr><th>#</th><th>Produkt</th><th>Lokasjon</th><th>Sone</th><th style="text-align:right">Plukk</th><th>Status</th></tr></thead>
+          <tbody>${items.map((it, i) => `
+            <tr>
+              <td style="color:var(--muted)">${i + 1}</td>
+              <td title="${it.product_name}">${cut(it.product_name, 28)}</td>
+              <td style="font-family:monospace;font-size:12px">${it.current_location || '—'}</td>
+              <td>${zonePill(it.current_zone_id)}</td>
+              <td style="text-align:right;font-weight:700">${it.pick_count}</td>
+              <td>${it.misplaced
+                ? '<span class="flag-badge">FLYTT HIT</span>'
+                : `<span style="color:var(--muted);font-size:11px">${it.status_name || ''}</span>`}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    // ── Render: Flytt-forslag ──
+    function renderMoveSuggest(data) {
+      const items = data.move_candidates || [];
+      const el    = document.getElementById('move-suggest-wrap');
+      if (!items.length) {
+        el.innerHTML = '<div class="loading-msg" style="color:var(--ok)">✓ Ingen flytt-kandidater</div>';
+        return;
+      }
+      el.innerHTML = `
+        <table class="wms-table">
+          <thead><tr><th>Produkt</th><th>Status</th><th>Sone</th><th style="text-align:right">Stk</th></tr></thead>
+          <tbody>${items.map(it => `
+            <tr>
+              <td title="${it.product_name}">${cut(it.product_name, 26)}</td>
+              <td><span class="status-pill">${it.status_name}</span></td>
+              <td>${zonePill(it.current_zone_id)}</td>
+              <td style="text-align:right;font-weight:700">${it.qty_in_stock}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    // ── Render: Mottak ──
+    function renderMottak(data) {
+      const txs = data.transactions || [];
+      const el  = document.getElementById('mottak-list');
+      if (!txs.length) {
+        el.innerHTML = '<div class="loading-msg" style="color:var(--muted)">Ingen mottak i dag</div>';
+        return;
+      }
+      el.innerHTML = txs.map(t => `
+        <div class="activity-item">
+          <div class="act-time">${hms(t.CREATED_TIME)}</div>
+          <span class="act-type MOTTAK">MOTTAK</span>
+          <div class="act-product">${cut(t.product_name, 30)}</div>
+          <div class="act-op" style="font-weight:700;min-width:24px;text-align:right">${t.QUANTITY}</div>
+          <div class="act-op">${t.operator_name || ''}</div>
+        </div>`).join('');
+    }
+
+    // ── Render: Aktivitetslogg ──
+    function renderHistory(data) {
+      const hist = data.history || [];
+      const el   = document.getElementById('history-list');
+      if (!hist.length) {
+        el.innerHTML = '<div class="loading-msg" style="color:var(--muted)">Ingen aktivitet</div>';
+        return;
+      }
+      el.innerHTML = hist.map(h => `
+        <div class="activity-item">
+          <div class="act-time">${hms(h.CREATED_TIME)}</div>
+          <span class="act-type ${h.transaction_type}">${h.transaction_type}</span>
+          <div class="act-product">${cut(h.product_name, 28)}</div>
+          <div class="act-op">${h.operator_name || ''}</div>
+        </div>`).join('');
+    }
+
+    // ── Hent alle data ──
+    async function fetchAll() {
+      setBadge('loading', 'Oppdaterer...');
+      const [zones, orders, operators, hotzone, moveSuggest, mottak, history] =
+        await Promise.allSettled([
+          apiFetch('/api/zones?days=7'),
+          apiFetch('/api/orders'),
+          apiFetch('/api/operators'),
+          apiFetch('/api/zones/hotzone?days=7&limit=20'),
+          apiFetch('/api/zones/move-suggest'),
+          apiFetch('/api/inbound/mottak?days=1'),
+          apiFetch('/api/inbound/history?hours=24'),
+        ]);
+
+      if (zones.status       === 'fulfilled') renderZones(zones.value);
+      if (orders.status      === 'fulfilled') renderOrders(orders.value);       else setErr('picklist-list', orders.reason.message);
+      if (operators.status   === 'fulfilled') renderOperators(operators.value); else setErr('operators-list', operators.reason.message);
+      if (hotzone.status     === 'fulfilled') renderHotzone(hotzone.value);     else setErr('hotzone-wrap', hotzone.reason.message);
+      if (moveSuggest.status === 'fulfilled') renderMoveSuggest(moveSuggest.value); else setErr('move-suggest-wrap', moveSuggest.reason.message);
+      if (mottak.status      === 'fulfilled') renderMottak(mottak.value);       else setErr('mottak-list', mottak.reason.message);
+      if (history.status     === 'fulfilled') renderHistory(history.value);     else setErr('history-list', history.reason.message);
+
+      const anyError = [zones, orders, operators, hotzone, moveSuggest, mottak, history].some(r => r.status === 'rejected');
+      const now = new Date().toLocaleTimeString('no-NO', { hour:'2-digit', minute:'2-digit' });
+      setBadge(anyError ? 'error' : '', `Oppdatert ${now}`);
+      nextRefreshAt = Date.now() + REFRESH_MS;
+    }
+
+    // ── Init: hent config → bygg UI → hent data ──
+    async function init() {
+      try {
+        const config = await apiFetch('/api/config');
+        applyConfig(config);
+      } catch (err) {
+        document.getElementById('zone-grid').innerHTML =
+          `<div class="error-msg">Kunne ikke laste konfigurasjon: ${err.message}</div>`;
+        return;
+      }
+      fetchAll();
+      setInterval(fetchAll, REFRESH_MS);
+    }
+
+    init();
+  </script>
+
+</body>
+</html>
