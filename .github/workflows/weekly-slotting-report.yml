@@ -1,0 +1,37 @@
+name: Weekly Slotting Report
+
+on:
+  schedule:
+    # Wednesday 12:00 Oslo time
+    # CET (winter): UTC+1 → 11:00 UTC
+    # CEST (summer): UTC+2 → 10:00 UTC
+    - cron: '0 11 * * 3'
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  send-report:
+    name: Send weekly slotting report
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: reports
+        run: npm ci
+
+      - name: Send weekly report
+        working-directory: reports
+        env:
+          SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}
+          AZURE_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET:   ${{ secrets.AZURE_CLIENT_SECRET }}
+          REPORT_FROM_EMAIL:     ${{ secrets.REPORT_FROM_EMAIL }}
+          REPORT_TO_EMAIL:       ${{ secrets.REPORT_TO_EMAIL }}
+        run: node weekly-slotting.js

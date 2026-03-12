@@ -1,0 +1,53 @@
+name: Sync WMS Data
+
+# Runs every 30 minutes, or manually from GitHub Actions tab
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Azure SQL → Supabase
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: sync
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: sync/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run sync
+        run: node index.js
+        env:
+          # ── Azure SQL ──────────────────────────────────
+          DB_SERVER:   ${{ secrets.DB_SERVER }}
+          DB_PORT:     ${{ secrets.DB_PORT }}
+          DB_NAME:     ${{ secrets.DB_NAME }}
+          DB_USER:     ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+
+          # ── Supabase ───────────────────────────────────
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+          # ── Customer config ────────────────────────────
+          CUSTOMER_NAME:    ${{ secrets.CUSTOMER_NAME }}
+          CUSTOMER_SHORT:   ${{ secrets.CUSTOMER_SHORT }}
+          CUSTOMER_COLOR:   ${{ secrets.CUSTOMER_COLOR }}
+          WAREHOUSE_ID:     ${{ secrets.WAREHOUSE_ID }}
+          ZONES_JSON:       ${{ secrets.ZONES_JSON }}
+          COLD_STATUS_IDS:  ${{ secrets.COLD_STATUS_IDS }}
+          SYSTEM_LOCATIONS: ${{ secrets.SYSTEM_LOCATIONS }}

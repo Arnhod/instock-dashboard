@@ -1,0 +1,14 @@
+{
+  "name": "instock-weekly-report",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "weekly-slotting.js",
+  "scripts": {
+    "start": "node weekly-slotting.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.4",
+    "dotenv": "^16.4.7"
+  }
+}

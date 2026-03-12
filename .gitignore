@@ -1,0 +1,17 @@
+# ── Node ─────────────────────────────────────────────────
+node_modules/
+*.log
+npm-debug.log*
+
+# ── Secrets & credentials ─────────────────────────────────
+.env
+wms-api/.env
+sync/.env
+reports/.env
+
+# ── Customer config (per-deploy, never committed) ─────────
+wms-api/src/customer.config.js
+dashboard/config.js
+
+# ── macOS ─────────────────────────────────────────────────
+.DS_Store
