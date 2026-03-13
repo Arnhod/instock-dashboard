@@ -115,6 +115,13 @@
     .seg-move      { background: #e879a0; }
     .op-row .total { font-size: 13px; font-weight: 700; min-width: 38px; text-align: right; }
 
+    .op-legend { display: flex; gap: 14px; margin-bottom: 10px; flex-wrap: wrap; }
+    .op-legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+    .op-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .op-pct-row { display: flex; gap: 8px; margin-top: 3px; flex-wrap: wrap; }
+    .op-pct-tag { font-size: 10px; color: var(--muted); }
+    .op-pct-tag strong { color: var(--text); font-weight: 600; }
+
     /* ── Row 3 ── */
     #row3 { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--gap); }
 
@@ -135,10 +142,11 @@
     .activity-item:last-child { border-bottom: none; }
     .act-time    { font-size: 11px; color: var(--muted); min-width: 44px; padding-top: 1px; font-variant-numeric: tabular-nums; }
     .act-type    { font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px; min-width: 54px; text-align: center; }
-    .act-type.PLUKK  { background: #4f6ef720; color: var(--accent); }
-    .act-type.MOTTAK { background: #22c55e20; color: var(--ok);     }
-    .act-type.RETUR  { background: #ef444420; color: var(--danger); }
-    .act-type.ANNET  { background: #8b929e20; color: var(--muted);  }
+    .act-type.PLUKK      { background: #4f6ef720; color: var(--accent); }
+    .act-type.MOTTAK     { background: #22c55e20; color: var(--ok);     }
+    .act-type.RETUR      { background: #ef444420; color: var(--danger); }
+    .act-type.ANNET      { background: #8b929e20; color: var(--muted);  }
+    .act-type.VAREPÅFYLL { background: #a855f720; color: #a855f7;       }
     .act-product { flex: 1; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .act-op      { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
@@ -182,6 +190,12 @@
       </div>
       <div class="card">
         <div class="card-title">Operatører i dag</div>
+        <div class="op-legend">
+          <div class="op-legend-item"><div class="op-legend-dot" style="background:var(--accent)"></div>Plukk</div>
+          <div class="op-legend-item"><div class="op-legend-dot" style="background:var(--ok)"></div>Mottak</div>
+          <div class="op-legend-item"><div class="op-legend-dot" style="background:#f97316"></div>Retur</div>
+          <div class="op-legend-item"><div class="op-legend-dot" style="background:#e879a0"></div>Flytt</div>
+        </div>
         <div id="operators-list"><div class="loading-msg">Laster...</div></div>
       </div>
     </div>
@@ -192,7 +206,7 @@
         <div class="table-scroll" id="hotzone-wrap"><div class="loading-msg">Laster...</div></div>
       </div>
       <div class="card">
-        <div class="card-title">Flytt ut av hot zone</div>
+        <div class="card-title">Flytt ut av hot zone <span id="count-move" style="color:var(--muted);font-weight:500"></span></div>
         <div class="table-scroll" id="move-suggest-wrap"><div class="loading-msg">Laster...</div></div>
       </div>
     </div>
@@ -333,14 +347,26 @@
       el.innerHTML = ops.slice(0, 10).map((op, i) => {
         const pp = op.pick_pct || 0, rp = op.receive_pct || 0, ret = op.return_pct || 0;
         const mp = Math.max(0, 100 - pp - rp - ret);
+        const parts = [
+          { pct: pp,  label: 'Plukk',  color: 'var(--accent)' },
+          { pct: rp,  label: 'Mottak', color: 'var(--ok)' },
+          { pct: ret, label: 'Retur',  color: '#f97316' },
+          { pct: mp,  label: 'Flytt',  color: '#e879a0' },
+        ].filter(p => p.pct > 2);
+        const pctHtml = parts.map(p =>
+          `<span class="op-pct-tag"><span style="color:${p.color}">●</span> ${p.label} <strong>${p.pct}%</strong></span>`
+        ).join('');
         return `<div class="op-row">
           <div class="rank">${i + 1}</div>
           <div class="name">${op.operator_name || op.username}</div>
-          <div class="op-bar-row">
-            <div class="op-bar-seg seg-pick"    style="width:${pp}%"  title="Plukk ${pp}%"></div>
-            <div class="op-bar-seg seg-receive" style="width:${rp}%"  title="Mottak ${rp}%"></div>
-            <div class="op-bar-seg seg-return"  style="width:${ret}%" title="Retur ${ret}%"></div>
-            <div class="op-bar-seg seg-move"    style="width:${mp}%"  title="Flytt ${mp}%"></div>
+          <div style="flex:2">
+            <div class="op-bar-row">
+              <div class="op-bar-seg seg-pick"    style="width:${pp}%"  title="Plukk ${pp}%"></div>
+              <div class="op-bar-seg seg-receive" style="width:${rp}%"  title="Mottak ${rp}%"></div>
+              <div class="op-bar-seg seg-return"  style="width:${ret}%" title="Retur ${ret}%"></div>
+              <div class="op-bar-seg seg-move"    style="width:${mp}%"  title="Flytt ${mp}%"></div>
+            </div>
+            <div class="op-pct-row">${pctHtml}</div>
           </div>
           <div class="total">${op.total_transactions}</div>
         </div>`;
@@ -375,6 +401,8 @@
     // ── Render: Move suggest ──────────────────────────────
     function renderMoveSuggest(items) {
       const el = document.getElementById('move-suggest-wrap');
+      const countEl = document.getElementById('count-move');
+      if (countEl) countEl.textContent = items.length ? `(${items.length})` : '';
       if (!items.length) {
         el.innerHTML = '<div class="loading-msg" style="color:var(--ok)">✓ Ingen flytt-kandidater</div>';
         return;

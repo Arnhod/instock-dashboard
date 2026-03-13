@@ -36,6 +36,7 @@ const dbConfig = {
   database: process.env.DB_NAME,
   user:     process.env.DB_USER,
   password: process.env.DB_PASSWORD,
+  requestTimeout: 60000,  // 60 seconds per query (default 15s is too short)
   options: {
     encrypt:               true,
     trustServerCertificate: true,
@@ -50,12 +51,12 @@ const supabase = createClient(
 );
 
 // ── Helpers ──────────────────────────────────────────────
-async function upsert(table, rows) {
+async function upsert(table, rows, conflictCol = 'id') {
   if (!rows || rows.length === 0) {
     console.log(`  — ${table}: ingen rader`);
     return;
   }
-  const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
+  const { error } = await supabase.from(table).upsert(rows, { onConflict: conflictCol });
   if (error) throw new Error(`upsert ${table}: ${error.message}`);
   console.log(`  ✓ ${table} — ${rows.length} rader`);
 }
@@ -143,7 +144,7 @@ async function syncAll() {
     pick_count:       z.pick_count,
     active_products:  z.active_products,
     updated_at:       now,
-  })));
+  })), 'zone_id');
 
   // ── 3. Hotzone — top 20 products ───────────────────────
   const hzRes = await pool.request()
@@ -178,7 +179,12 @@ async function syncAll() {
       ORDER BY pick_count DESC
     `);
 
-  const hzRows = hzRes.recordset.map(it => ({
+  // Deduplicate by product_id — a product may appear in multiple locations;
+  // keep the first occurrence (highest pick_count since ordered DESC)
+  const hzSeen = new Set();
+  const hzRows = hzRes.recordset
+    .filter(it => { if (hzSeen.has(it.product_id)) return false; hzSeen.add(it.product_id); return true; })
+    .map(it => ({
     product_id:        it.product_id,
     sku:               it.sku,
     product_name:      it.product_name,
@@ -194,7 +200,7 @@ async function syncAll() {
     updated_at:        now,
   }));
 
-  await upsert('wms_hotzone_items', hzRows);
+  await upsert('wms_hotzone_items', hzRows, 'product_id');
   await deleteStale('wms_hotzone_items', 'product_id', hzRows.map(r => r.product_id));
 
   // ── 4. Move candidates ─────────────────────────────────
@@ -227,7 +233,10 @@ async function syncAll() {
     ORDER BY ps.ID, s.QUANTITY DESC
   `);
 
-  const mcRows = mcRes.recordset.map(it => ({
+  const mcSeen = new Set();
+  const mcRows = mcRes.recordset
+    .filter(it => { if (mcSeen.has(it.product_id)) return false; mcSeen.add(it.product_id); return true; })
+    .map(it => ({
     product_id:        it.product_id,
     sku:               it.sku,
     product_name:      it.product_name,
@@ -241,22 +250,24 @@ async function syncAll() {
     updated_at:        now,
   }));
 
-  await upsert('wms_move_candidates', mcRows);
+  await upsert('wms_move_candidates', mcRows, 'product_id');
   await deleteStale('wms_move_candidates', 'product_id', mcRows.map(r => r.product_id));
 
   // ── 5. Pipeline + active picklists ─────────────────────
   const pipeRes = await pool.request().query(`
     SELECT STATUS, COUNT(*) AS count
     FROM wms_picklist
-    WHERE CREATED_TIME >= DATEADD(DAY, -1, GETDATE())
+    WHERE CAST(CREATED_TIME AS DATE) = CAST(GETDATE() AS DATE)
       AND STATUS IN ('OPEN','STARTED','FINISHED')
     GROUP BY STATUS
   `);
 
-  const { error: plErr } = await supabase.from('wms_pipeline').upsert(
+  // Clear and rewrite pipeline counts so stale data never lingers
+  await supabase.from('wms_pipeline').delete().neq('status', '');
+  const { error: plErr } = await supabase.from('wms_pipeline').insert(
     pipeRes.recordset.map(p => ({ status: p.STATUS, count: p.count, updated_at: now }))
   );
-  if (plErr) throw new Error(`upsert wms_pipeline: ${plErr.message}`);
+  if (plErr) throw new Error(`insert wms_pipeline: ${plErr.message}`);
   console.log(`  ✓ wms_pipeline — ${pipeRes.recordset.length} statuser`);
 
   const activeRes = await pool.request().query(`
@@ -277,8 +288,8 @@ async function syncAll() {
     FROM wms_picklist pl
     LEFT JOIN auth_user u         ON u.ID = pl.ASSIGNED_TO
     LEFT JOIN wms_picklist_line pll ON pll.PICKLIST_ID = pl.ID
-    WHERE pl.CREATED_TIME >= DATEADD(DAY, -1, GETDATE())
-      AND pl.STATUS IN ('OPEN','STARTED')
+    WHERE pl.STATUS IN ('OPEN','STARTED')
+      AND pl.CREATED_TIME >= DATEADD(DAY, -7, GETDATE())
     GROUP BY pl.ID, pl.STATUS, pl.CREATED_TIME, pl.MODIFIED_TIME,
              pl.SHORTAGE, u.NAME, u.USERNAME, u.ID, pl.ZONES
     ORDER BY pl.CREATED_TIME DESC
@@ -301,7 +312,7 @@ async function syncAll() {
     updated_at:        now,
   }));
 
-  await upsert('wms_active_picklists', activeRows);
+  await upsert('wms_active_picklists', activeRows, 'picklist_id');
   await deleteStale('wms_active_picklists', 'picklist_id', activeRows.map(r => r.picklist_id));
 
   // ── 6. Operators today ─────────────────────────────────
@@ -353,7 +364,7 @@ async function syncAll() {
     };
   });
 
-  await upsert('wms_operators_today', opRows);
+  await upsert('wms_operators_today', opRows, 'operator_id');
   await deleteStale('wms_operators_today', 'operator_id', opRows.map(r => r.operator_id));
 
   // ── 7. Mottak today ────────────────────────────────────
@@ -408,7 +419,11 @@ async function syncAll() {
           WHEN t.LOCATION_ID = 'MOTTAK'  THEN 'MOTTAK'
           WHEN t.LOCATION_ID = 'Bermuda' THEN 'RETUR'
           WHEN t.LOCATION_FROM_ID IS NOT NULL
-           AND t.LOCATION_FROM_ID NOT IN (${SYS_LOCS_SQL}) THEN 'PLUKK'
+           AND t.LOCATION_FROM_ID NOT IN (${SYS_LOCS_SQL})
+           AND t.LOCATION_ID     NOT IN (${SYS_LOCS_SQL}) THEN 'PLUKK'
+          WHEN t.LOCATION_FROM_ID IS NOT NULL
+           AND t.LOCATION_FROM_ID IN (${SYS_LOCS_SQL})
+           AND t.LOCATION_ID     NOT IN (${SYS_LOCS_SQL}) THEN 'VAREPÅFYLL'
           ELSE 'ANNET'
         END AS transaction_type
       FROM wms_transaction t
@@ -422,7 +437,10 @@ async function syncAll() {
       ORDER BY t.CREATED_TIME DESC
     `);
 
-  await upsert('wms_activity_feed', histRes.recordset.map(h => ({
+  const actSeen = new Set();
+  await upsert('wms_activity_feed', histRes.recordset
+    .filter(h => { if (actSeen.has(h.ID)) return false; actSeen.add(h.ID); return true; })
+    .map(h => ({
     id:               h.ID,
     created_time:     h.CREATED_TIME,
     quantity:         h.QUANTITY,
